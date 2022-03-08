@@ -11,122 +11,131 @@ const tempSca = new Vector3();
 const tempMat = new Matrix4();
 export class I3DMLoader extends I3DMLoaderBase {
 
-	constructor( manager = DefaultLoadingManager ) {
+	constructor(manager = DefaultLoadingManager) {
 
 		super();
 		this.manager = manager;
 
 	}
 
-	resolveExternalURL( url ) {
+	resolveExternalURL(url) {
 
-		return this.manager.resolveURL( super.resolveExternalURL( url ) );
+		return this.manager.resolveURL(super.resolveExternalURL(url));
 
 	}
 
-	parse( buffer ) {
+	parse(buffer) {
 
 		return super
-			.parse( buffer )
-			.then( i3dm => {
+			.parse(buffer)
+			.then(i3dm => {
 
 				const { featureTable, batchTable } = i3dm;
 				const gltfBuffer = i3dm.glbBytes.slice().buffer;
-				return new Promise( ( resolve, reject ) => {
+				return new Promise((resolve, reject) => {
 
 					const fetchOptions = this.fetchOptions;
 					const manager = this.manager;
-					const loader = manager.getHandler( 'path.gltf' ) || new GLTFLoader( manager );
+					const loader = manager.getHandler('path.gltf') || new GLTFLoader(manager);
 
-					if ( fetchOptions.credentials === 'include' && fetchOptions.mode === 'cors' ) {
+					if (fetchOptions.credentials === 'include' && fetchOptions.mode === 'cors') {
 
-						loader.setCrossOrigin( 'use-credentials' );
-
-					}
-
-					if ( 'credentials' in fetchOptions ) {
-
-						loader.setWithCredentials( fetchOptions.credentials === 'include' );
+						loader.setCrossOrigin('use-credentials');
 
 					}
 
-					if ( fetchOptions.headers ) {
+					if ('credentials' in fetchOptions) {
 
-						loader.setRequestHeader( fetchOptions.headers );
+						loader.setWithCredentials(fetchOptions.credentials === 'include');
+
+					}
+
+					if (fetchOptions.headers) {
+
+						loader.setRequestHeader(fetchOptions.headers);
 
 					}
 
 					// GLTFLoader assumes the working path ends in a slash
 					let workingPath = this.workingPath;
-					if ( ! /[\\/]$/.test( workingPath ) ) {
+					if (! /[\\/]$/.test(workingPath)) {
 
 						workingPath += '/';
 
 					}
 
-					loader.parse( gltfBuffer, workingPath, model => {
+					loader.parse(gltfBuffer, workingPath, model => {
 
-						const INSTANCES_LENGTH = featureTable.getData( 'INSTANCES_LENGTH' );
-						const POSITION = featureTable.getData( 'POSITION', INSTANCES_LENGTH, 'FLOAT', 'VEC3' );
-						const NORMAL_UP = featureTable.getData( 'NORMAL_UP', INSTANCES_LENGTH, 'FLOAT', 'VEC3' );
-						const NORMAL_RIGHT = featureTable.getData( 'NORMAL_RIGHT', INSTANCES_LENGTH, 'FLOAT', 'VEC3' );
-						const SCALE_NON_UNIFORM = featureTable.getData( 'SCALE_NON_UNIFORM', INSTANCES_LENGTH, 'FLOAT', 'VEC3' );
-						const SCALE = featureTable.getData( 'SCALE', INSTANCES_LENGTH, 'FLOAT', 'SCALAR' );
+						const INSTANCES_LENGTH = featureTable.getData('INSTANCES_LENGTH');
+						var POSITION = featureTable.getData('POSITION', INSTANCES_LENGTH, 'FLOAT', 'VEC3');
+						const POSITION_QUANTIZED = featureTable.getData('POSITION_QUANTIZED', INSTANCES_LENGTH, 'UNSIGNED_SHORT', 'VEC3');
+						const QUANTIZED_VOLUME_SCALE = featureTable.getData('QUANTIZED_VOLUME_SCALE', INSTANCES_LENGTH, 'FLOAT', 'VEC3');
+						const RTC_CENTER = featureTable.getData('RTC_CENTER', INSTANCES_LENGTH, 'FLOAT', 'VEC3');
+						const QUANTIZED_VOLUME_OFFSET = featureTable.getData('QUANTIZED_VOLUME_OFFSET', INSTANCES_LENGTH, 'FLOAT', 'VEC3');
+						const NORMAL_UP = featureTable.getData('NORMAL_UP', INSTANCES_LENGTH, 'FLOAT', 'VEC3');
+						const NORMAL_RIGHT = featureTable.getData('NORMAL_RIGHT', INSTANCES_LENGTH, 'FLOAT', 'VEC3');
+						const SCALE_NON_UNIFORM = featureTable.getData('SCALE_NON_UNIFORM', INSTANCES_LENGTH, 'FLOAT', 'VEC3');
+						const SCALE = featureTable.getData('SCALE', INSTANCES_LENGTH, 'FLOAT', 'SCALAR');
 
 						[
-							'RTC_CENTER',
-							'QUANTIZED_VOLUME_OFFSET',
-							'QUANTIZED_VOLUME_SCALE',
 							'EAST_NORTH_UP',
-							'POSITION_QUANTIZED',
 							'NORMAL_UP_OCT32P',
 							'NORMAL_RIGHT_OCT32P',
-						].forEach( feature => {
+						].forEach(feature => {
 
-							if ( feature in featureTable.header ) {
+							if (feature in featureTable.header) {
 
-								console.warn( `I3DMLoader: Unsupported FeatureTable feature "${ feature }" detected.` );
+								console.warn(`I3DMLoader: Unsupported FeatureTable feature "${feature}" detected.`);
 
 							}
 
-						} );
+						});
+
+						if (!POSITION) {
+							POSITION = new Float64Array(3);
+							for (var j = 0; j < 3; j++) {
+								POSITION[j] =
+									(POSITION_QUANTIZED[j] / 65535.0) * QUANTIZED_VOLUME_SCALE[j] +
+									QUANTIZED_VOLUME_OFFSET[j];
+							}
+						}
 
 						const instanceMap = new Map();
 						const instances = [];
-						model.scene.traverse( child => {
+						model.scene.traverse(child => {
 
-							if ( child.isMesh ) {
+							if (child.isMesh) {
 
 								const { geometry, material } = child;
-								const instancedMesh = new InstancedMesh( geometry, material, INSTANCES_LENGTH );
-								instancedMesh.position.copy( child.position );
-								instancedMesh.rotation.copy( child.rotation );
-								instancedMesh.scale.copy( child.scale );
-								instances.push( instancedMesh );
-								instanceMap.set( child, instancedMesh );
+								const instancedMesh = new InstancedMesh(geometry, material, INSTANCES_LENGTH);
+								instancedMesh.position.copy(child.position);
+								instancedMesh.rotation.copy(child.rotation);
+								instancedMesh.scale.copy(child.scale);
+								instances.push(instancedMesh);
+								instanceMap.set(child, instancedMesh);
 
 							}
 
-						} );
+						});
 
 						const averageVector = new Vector3();
-						for ( let i = 0; i < INSTANCES_LENGTH; i ++ ) {
+						for (let i = 0; i < INSTANCES_LENGTH; i++) {
 
-							averageVector.x += POSITION[ i * 3 + 0 ] / INSTANCES_LENGTH;
-							averageVector.y += POSITION[ i * 3 + 1 ] / INSTANCES_LENGTH;
-							averageVector.z += POSITION[ i * 3 + 2 ] / INSTANCES_LENGTH;
+							averageVector.x += POSITION[i * 3 + 0] / INSTANCES_LENGTH;
+							averageVector.y += POSITION[i * 3 + 1] / INSTANCES_LENGTH;
+							averageVector.z += POSITION[i * 3 + 2] / INSTANCES_LENGTH;
 
 						}
 
 						// replace the meshes with instanced meshes
-						instanceMap.forEach( ( instancedMesh, mesh ) => {
+						instanceMap.forEach((instancedMesh, mesh) => {
 
 							const parent = mesh.parent;
-							if ( parent ) {
+							if (parent) {
 
 								// Mesh have no children
-								parent.remove( mesh );
-								parent.add( instancedMesh );
+								parent.remove(mesh);
+								parent.add(instancedMesh);
 
 								// Center the instance around an average point to avoid jitter at large scales.
 								// Transform the average vector by matrix world so we can account for any existing
@@ -134,38 +143,38 @@ export class I3DMLoader extends I3DMLoaderBase {
 								instancedMesh.updateMatrixWorld();
 								instancedMesh
 									.position
-									.copy( averageVector )
-									.applyMatrix4( instancedMesh.matrixWorld );
+									.copy(averageVector)
+									.applyMatrix4(instancedMesh.matrixWorld);
 
 							}
 
-						} );
+						});
 
-						for ( let i = 0; i < INSTANCES_LENGTH; i ++ ) {
+						for (let i = 0; i < INSTANCES_LENGTH; i++) {
 
 							// position
 							tempPos.set(
-								POSITION[ i * 3 + 0 ] - averageVector.x,
-								POSITION[ i * 3 + 1 ] - averageVector.y,
-								POSITION[ i * 3 + 2 ] - averageVector.z,
+								POSITION[i * 3 + 0] - averageVector.x,
+								POSITION[i * 3 + 1] - averageVector.y,
+								POSITION[i * 3 + 2] - averageVector.z,
 							);
 
 							// rotation
-							if ( NORMAL_UP ) {
+							if (NORMAL_UP) {
 
 								tempUp.set(
-									NORMAL_UP[ i * 3 + 0 ],
-									NORMAL_UP[ i * 3 + 1 ],
-									NORMAL_UP[ i * 3 + 2 ],
+									NORMAL_UP[i * 3 + 0],
+									NORMAL_UP[i * 3 + 1],
+									NORMAL_UP[i * 3 + 2],
 								);
 
 								tempRight.set(
-									NORMAL_RIGHT[ i * 3 + 0 ],
-									NORMAL_RIGHT[ i * 3 + 1 ],
-									NORMAL_RIGHT[ i * 3 + 2 ],
+									NORMAL_RIGHT[i * 3 + 0],
+									NORMAL_RIGHT[i * 3 + 1],
+									NORMAL_RIGHT[i * 3 + 2],
 								);
 
-								tempFwd.crossVectors( tempRight, tempUp )
+								tempFwd.crossVectors(tempRight, tempUp)
 									.normalize();
 
 								tempMat.makeBasis(
@@ -174,39 +183,43 @@ export class I3DMLoader extends I3DMLoaderBase {
 									tempFwd,
 								);
 
-								tempQuat.setFromRotationMatrix( tempMat );
+								tempQuat.setFromRotationMatrix(tempMat);
 
 							} else {
 
-								tempQuat.set( 0, 0, 0, 1 );
+								tempQuat.set(0, 0, 0, 1);
 
 							}
 
 							// scale
-							if ( SCALE ) {
+							if (SCALE) {
 
-								tempSca.setScalar( SCALE[ i ] );
+								tempSca.setScalar(SCALE[i]);
 
-							} else if ( SCALE_NON_UNIFORM ) {
+							} else if (SCALE_NON_UNIFORM) {
 
 								tempSca.set(
-									SCALE_NON_UNIFORM[ i * 3 + 0 ],
-									SCALE_NON_UNIFORM[ i * 3 + 1 ],
-									SCALE_NON_UNIFORM[ i * 3 + 2 ],
+									SCALE_NON_UNIFORM[i * 3 + 0],
+									SCALE_NON_UNIFORM[i * 3 + 1],
+									SCALE_NON_UNIFORM[i * 3 + 2],
 								);
 
 							} else {
 
-								tempSca.set( 1, 1, 1 );
+								tempSca.set(1, 1, 1);
 
 							}
 
-							tempMat.compose( tempPos, tempQuat, tempSca );
+							if (RTC_CENTER) {
+								tempPos.add(new Vector3(RTC_CENTER[0], RTC_CENTER[1], RTC_CENTER[2]));
+							}
+							
+							tempMat.compose(tempPos, tempQuat, tempSca);
 
-							for ( let j = 0, l = instances.length; j < l; j ++ ) {
+							for (let j = 0, l = instances.length; j < l; j++) {
 
-								const instance = instances[ j ];
-								instance.setMatrixAt( i, tempMat );
+								const instance = instances[j];
+								instance.setMatrixAt(i, tempMat);
 
 							}
 
@@ -218,13 +231,13 @@ export class I3DMLoader extends I3DMLoaderBase {
 						model.scene.batchTable = batchTable;
 						model.scene.featureTable = featureTable;
 
-						resolve( model );
+						resolve(model);
 
-					}, reject );
+					}, reject);
 
-				} );
+				});
 
-			} );
+			});
 
 	}
 
