@@ -11,10 +11,11 @@ const tempSca = new Vector3();
 const tempMat = new Matrix4();
 export class I3DMLoader extends I3DMLoaderBase {
 
-	constructor(manager = DefaultLoadingManager) {
+	constructor(manager = DefaultLoadingManager, tileRender) {
 
 		super();
 		this.manager = manager;
+		this.tileRender = tileRender;
 
 	}
 
@@ -92,11 +93,11 @@ export class I3DMLoader extends I3DMLoaderBase {
 						});
 
 						if (!POSITION) {
-							POSITION = new Float64Array(3);
-							for (var j = 0; j < 3; j++) {
+							POSITION = new Float64Array(3 * INSTANCES_LENGTH);
+							for (var j = 0; j < 3 * INSTANCES_LENGTH; j++) {
 								POSITION[j] =
-									(POSITION_QUANTIZED[j] / 65535.0) * QUANTIZED_VOLUME_SCALE[j] +
-									QUANTIZED_VOLUME_OFFSET[j];
+									(POSITION_QUANTIZED[j] / 65535.0) * QUANTIZED_VOLUME_SCALE[j % 3] +
+									QUANTIZED_VOLUME_OFFSET[j % 3];
 							}
 						}
 
@@ -119,14 +120,19 @@ export class I3DMLoader extends I3DMLoaderBase {
 						});
 
 						const averageVector = new Vector3();
-						for (let i = 0; i < INSTANCES_LENGTH; i++) {
 
-							averageVector.x += POSITION[i * 3 + 0] / INSTANCES_LENGTH;
-							averageVector.y += POSITION[i * 3 + 1] / INSTANCES_LENGTH;
-							averageVector.z += POSITION[i * 3 + 2] / INSTANCES_LENGTH;
+						if (this.tileRender.rootPosition) {
+							averageVector.copy(this.tileRender.rootPosition);
+						} else {
 
+							for (let i = 0; i < INSTANCES_LENGTH; i++) {
+
+								averageVector.x += POSITION[i * 3 + 0] / INSTANCES_LENGTH;
+								averageVector.y += POSITION[i * 3 + 1] / INSTANCES_LENGTH;
+								averageVector.z += POSITION[i * 3 + 2] / INSTANCES_LENGTH;
+
+							}
 						}
-
 						// replace the meshes with instanced meshes
 						instanceMap.forEach((instancedMesh, mesh) => {
 
@@ -140,11 +146,11 @@ export class I3DMLoader extends I3DMLoaderBase {
 								// Center the instance around an average point to avoid jitter at large scales.
 								// Transform the average vector by matrix world so we can account for any existing
 								// transforms of the instanced mesh.
-								instancedMesh.updateMatrixWorld();
-								instancedMesh
-									.position
-									.copy(averageVector)
-									.applyMatrix4(instancedMesh.matrixWorld);
+								// instancedMesh.updateMatrixWorld();  
+								// instancedMesh
+								// 	.position
+								// 	.copy(averageVector)
+								// 	.applyMatrix4(instancedMesh.matrixWorld);
 
 							}
 
@@ -154,9 +160,9 @@ export class I3DMLoader extends I3DMLoaderBase {
 
 							// position
 							tempPos.set(
-								POSITION[i * 3 + 0] - averageVector.x,
-								POSITION[i * 3 + 1] - averageVector.y,
-								POSITION[i * 3 + 2] - averageVector.z,
+								POSITION[i * 3 + 0],
+								POSITION[i * 3 + 1],
+								POSITION[i * 3 + 2]
 							);
 
 							// rotation
@@ -213,7 +219,9 @@ export class I3DMLoader extends I3DMLoaderBase {
 							if (RTC_CENTER) {
 								tempPos.add(new Vector3(RTC_CENTER[0], RTC_CENTER[1], RTC_CENTER[2]));
 							}
-							
+
+							tempPos.copy(this.tileRender.reProject(tempPos).sub(averageVector));
+
 							tempMat.compose(tempPos, tempQuat, tempSca);
 
 							for (let j = 0, l = instances.length; j < l; j++) {

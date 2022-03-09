@@ -609,7 +609,7 @@ export class TilesRenderer extends TilesRendererBase {
 
 			case 'i3dm': {
 
-				const loader = new I3DMLoader( manager );
+				const loader = new I3DMLoader( manager ,this);
 				loader.workingPath = workingPath;
 				loader.fetchOptions = fetchOptions;
 				promise = loader
