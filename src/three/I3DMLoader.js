@@ -114,7 +114,7 @@ export class I3DMLoader extends I3DMLoaderBase {
 								instancedMesh.scale.copy(child.scale);
 								instances.push(instancedMesh);
 								instanceMap.set(child, instancedMesh);
-
+								instancedMesh.userData.i3dm = i3dm;
 							}
 
 						});
